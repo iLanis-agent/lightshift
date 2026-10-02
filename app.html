@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LightShift - how much daylight are you gaining or losing?</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; background:#1a1b2e; color:#f1eefc; line-height:1.5; }
+  .wrap { max-width:660px; margin:0 auto; padding:26px 18px 50px; }
+  h1 { font-size:28px; } h1 span { color:#ffc857; }
+  .sub { color:#b9b4d6; margin:6px 0 18px; }
+  .card { background:#262847; border-radius:14px; padding:16px; margin-bottom:14px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; } label { display:block; font-size:13px; color:#b9b4d6; margin-bottom:4px; }
+  input, select { background:#1a1b2e; color:#f1eefc; border:1px solid #444775; border-radius:8px; padding:9px; font-size:16px; }
+  input[type=number] { width:110px; }
+  .big { font-size:36px; font-weight:800; color:#ffc857; } .chg { font-size:20px; font-weight:700; }
+  .up { color:#7ee08a; } .down { color:#ff8a7a; }
+  svg { width:100%; height:auto; display:block; } .muted { color:#b9b4d6; font-size:14px; }
+  .note { font-size:12.5px; color:#8f8ab3; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Light<span>Shift</span></h1>
+  <div class="sub">Pick a place and a date. See the day length, whether you are gaining or losing light, and where you are on the year curve.</div>
+  <div class="card">
+    <div class="row">
+      <div><label>Place</label><select id="city"></select></div>
+      <div><label>Date</label><input id="date" type="date" value="2026-10-02"></div>
+    </div>
+    <div class="row" style="margin-top:12px"><div><label>Latitude (+N)</label><input id="lat" type="number" step="0.01" value="40.71"></div><div><label>Longitude (+E)</label><input id="lon" type="number" step="0.01" value="-74.01"></div></div>
+  </div>
+  <div class="card"><div class="muted">Day length</div><div class="big" id="len">-</div><div class="chg" id="chg"></div><div class="muted" id="ext" style="margin-top:8px"></div></div>
+  <div class="card"><svg id="chart" viewBox="0 0 600 220" role="img" aria-label="Day length over the year"></svg><div class="muted" id="cap"></div></div>
+  <div class="note">Sunrise equation with the standard sunrise altitude of -0.833 degrees (refraction and solar disc); solar position from the Astronomical Almanac low-precision formulas. Within about a minute of timeanddate.com in tests. Real sunrise varies a little with weather, terrain and elevation.</div>
+</div>
+<script src="engine.js"></script>
+<script>
+(function () {
+  var L = window.Light, $ = function (i) { return document.getElementById(i); };
+  var CITIES = [['New York', 40.7128, -74.006], ['London', 51.5074, -0.1278], ['Jerusalem', 31.7683, 35.2137], ['Sydney', -33.8688, 151.2093], ['Singapore', 1.3521, 103.8198], ['Reykjavik', 64.1466, -21.9426], ['Tromso', 69.6492, 18.9553], ['Custom', null, null]];
+  $('city').innerHTML = CITIES.map(function (c, i) { return '<option value="' + i + '">' + c[0] + '</option>'; }).join('');
+  function pick() { var c = CITIES[+$('city').value]; if (c[1] !== null) { $('lat').value = c[1].toFixed(2); $('lon').value = c[2].toFixed(2); } render(); }
+  function render() {
+    var lat = parseFloat($('lat').value), lon = parseFloat($('lon').value), p = $('date').value.split('-').map(Number);
+    if (isNaN(lat) || isNaN(lon) || p.length < 3 || !p[0] || Math.abs(lat) > 90) { $('len').textContent = '-'; $('chg').textContent = 'Enter a valid place and date'; $('chg').className = 'chg'; $('chart').innerHTML = ''; $('ext').textContent = ''; return; }
+    var y = p[0], doy = L.doyOf(y, p[1], p[2]), h = L.dayLengthHours(lat, y, doy, lon);
+    $('len').textContent = h === 24 ? '24h (midnight sun)' : h === 0 ? '0h (polar night)' : L.hms(h);
+    var ch = L.dailyChangeSec(lat, y, doy, lon), a = Math.abs(ch);
+    var txt = a < 1 ? 'about the same as yesterday' : (ch > 0 ? '+' : '-') + Math.floor(a / 60) + 'm ' + Math.round(a % 60) + 's vs yesterday';
+    $('chg').textContent = (ch > 0.5 ? 'Gaining: ' : ch < -0.5 ? 'Losing: ' : '') + txt; $('chg').className = 'chg ' + (ch > 0.5 ? 'up' : ch < -0.5 ? 'down' : '');
+    var x = L.extremes(lat, y, lon);
+    $('ext').textContent = 'Longest day ' + L.dateOf(y, x.longest.doy) + ' (' + L.hms(x.longest.h) + '), shortest ' + L.dateOf(y, x.shortest.doy) + ' (' + L.hms(x.shortest.h) + ')';
+    var n = L.yearDays(y), pts = [], i;
+    for (i = 1; i <= n; i++) pts.push([30 + (i - 1) / (n - 1) * 550, 200 - L.dayLengthHours(lat, y, i, lon) / 24 * 180]);
+    var d = 'M' + pts.map(function (q) { return q[0].toFixed(1) + ',' + q[1].toFixed(1); }).join(' L');
+    var g = '';
+    [0, 6, 12, 18, 24].forEach(function (v) { var yy = 200 - v / 24 * 180; g += '<line x1="30" x2="580" y1="' + yy + '" y2="' + yy + '" stroke="#3a3c66"/><text x="4" y="' + (yy + 4) + '" fill="#8f8ab3" font-size="11">' + v + 'h</text>'; });
+    ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'].forEach(function (m, k) { g += '<text x="' + (30 + (k + 0.5) / 12 * 550 - 3) + '" y="216" fill="#8f8ab3" font-size="11">' + m + '</text>'; });
+    var me = pts[doy - 1];
+    $('chart').innerHTML = g + '<path d="' + d + '" fill="none" stroke="#ffc857" stroke-width="2.5"/><circle cx="' + me[0] + '" cy="' + me[1] + '" r="6" fill="#7ee08a" stroke="#1a1b2e" stroke-width="2"/>';
+    $('cap').textContent = 'Green dot: ' + $('date').value;
+  }
+  $('city').onchange = pick;
+  ['lat', 'lon'].forEach(function (i) { $(i).oninput = function () { $('city').value = CITIES.length - 1; render(); }; });
+  $('date').oninput = render;
+  pick();
+})();
+</script>
+</body>
+</html>
